@@ -11,6 +11,7 @@ SIRIO includes (not in order of appearance):
 - thermal noise contribution;
 - baseline interpolation;
 - cleaning by iterations.
+
 Enjoy! 
 
 
