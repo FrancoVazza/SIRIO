@@ -14,6 +14,20 @@ SIRIO includes (not in order of appearance):
 - baseline interpolation;
 - cleaning by iterations.
 
-Enjoy! 
+
+Compilation & execution
+
+Download everything
+
+.r needs_good
+.r needs_good
+.r sirio
+sirio
+
+[remember to adjust the absolute path of IO folders in the first line of the sirio main program]
+Multiple windows should appear during the execution, and intermediate and final outputs will appear in /output.
+
+
+...Enjoy! 
 
 
