@@ -1,7 +1,7 @@
 
 pro sirio
 
-;....by Franco Vazza, Annalisa Bonafede
+;....by Franco Vazza, Annalisa Bonafede (2012)
 ;....takes as input a simulated radio image [erg/(s Hz)]
 ;....computes the observable flux muJ/pixel at distance dL
 ;....takes as input a dataset for a given interferometer configuration
@@ -14,20 +14,19 @@ pro sirio
 
  kb=1.38e-16;float(11.6e6) ; boltzmann constant in cgs
  kmtoMpc=3.085e-24  ;....in cgs this is -24 conversion from Mpc to km
- cell=32 ;....physical size of a pixel
-                                ;....in this case 32 kpc
+ cell=32 ;....physical size of a pixel                                ;....in this case 32 kpc
  pixel_scale=32*0.095 ;...pixel scale for this simulation at z=0.05 in LCDM 
 ;...read an input image of size nxn and dimension [erg/s/Hz]
 ;...here in binary format
 n0=200  ;..size of the input image
 
-imag=fltarr(n0,n0)  ;...input image
-folder='/Users/francovazza/Downloads/SIRIO/'
-file_input=folder+'/input/relic1.dat'
 
 ;...in the input files, relic1-2-3 are the three projection of a simulated double relic with b0=0.1 muG everywhere
 ;........................relic11-22-33 are the same fields, for a larger fixed B=1muG.
 
+imag=fltarr(n0,n0)  ;...input image
+folder='/Users/francovazza/Downloads/SIRIO/'
+file_input=folder+'/input/relic1.dat'
 openr,4,file_input  ;...the input image is read
 readu,4,imag
 close,4
@@ -39,7 +38,7 @@ close,4
 ;imag=imag+3e30*imas
 
 print,'INPUT IMAGE READ'
-set_plot,'x' ;...plot the image 
+set_plot,'x' ;...show the image 
 window,5
 tvscl,imag
 
