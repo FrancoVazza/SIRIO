@@ -10,6 +10,11 @@ pro sirio
 ;....computes UV coverage and dirty beam
 ;....clean the dirty image via iterations
 
+folder='/Users/francovazza/Downloads/SIRIO/'
+namef='relic1.dat'     ;..binary file containing sky model
+nameg='radio_gal.dat'  ;...binary file containing pointlike sources - to change this file use the "generate_radio_gal" routine
+name_ant='VLA.reg'     ;...file with antenna positions
+      
 ;...constants needed for the simulated input image
 
  kb=1.38e-16;float(11.6e6) ; boltzmann constant in cgs
@@ -20,194 +25,92 @@ pro sirio
 ;...here in binary format
 n0=200  ;..size of the input image
 
-
 ;...in the input files, relic1-2-3 are the three projection of a simulated double relic with b0=0.1 muG everywhere
 ;........................relic11-22-33 are the same fields, for a larger fixed B=1muG.
+print,'Reading sky model' 
+imag=read_image(n0,folder,namef)
 
-imag=fltarr(n0,n0)  ;...input image
-folder='/Users/francovazza/Downloads/SIRIO/'
-file_input=folder+'/input/relic1.dat'
-openr,4,file_input  ;...the input image is read
-readu,4,imag
-close,4
-;....do you want to add point-like sources associated to radio galaxies?
-;imas=fltarr(n0,n0)
-;openr,4,folder+'/input/radio_gal.dat'
-;readu,4,imas
-;close,4
-;imag=imag+3e30*imas
+print,'Do you want to add pointlike sources? (y/n)'
+answ='y'
+;read,answ
 
-print,'INPUT IMAGE READ'
-set_plot,'x' ;...show the image 
-window,5
-tvscl,imag
+if answ eq 'y' then begin
+print,'Adding pointlike sources (generate with "generate_radio_gal") '
+imas=read_image(n0,folder,nameg)
+norm_gal=3e28 ;..normalisation factor for radio galaxy emission [erg/s/Hz]
+imag+=imas+norm_gal*imas
+endif
 
 ;...now we transform erg/s/Hz in muJ/pixel
 ;...the pixel is assumed to be equal to the observational beam at this level
 ;...it is true for Vazza's simulation if the source is located at dL=450 Mpc and the res is 32 kpc
 ;...we must assume a luminosity distance in  [Mpc]
+;...no noise added
+dMpc=200 ;....luminosity distance in Mpc
+cradio=23-alog10(4*3.14)-2*alog10(dMpc*3.085e24)+6 ;...this converts erg/(s Hz) in muJ/pixel
+imag=imag*10^cradio ;...now on the image is in muJ/pixel
 
- dMpc=300 ;....luminosity distance in Mpc
- 
- cradio=23-alog10(4*3.14)-2*alog10(dMpc*3.085e24)+6 ;...this converts erg/(s Hz) in muJ/pixel
-
- imag=imag*10^cradio ;...now on the image is in muJ/pixel
-                      ;...no noise added
- writefits,folder+'/out/input_map.fits',abs(imag)
+set_plot,'x' ;...show the image 
+!p.multi=[0,3,3]
+!p.font=1
+window,1,xsize=900,ysize=900
+contour,alog10(imag),nlevels=128,/fill,title='input sky model',charsize=3
+;tvscl,imag,title='sky model'
+print,'writing the sky model as .fits file in /input'
+ writefits,folder+'/output/input_map.fits',abs(imag)
 
 print,'FFT transforming the dataset' 
  imaff=shift(fft(imag,1),n0*0.5-1,n0*0.5-1)  ;...simple FFT transform of the image, centre in 0.5*n-1,0.5*n-1 (the conversion in idl is to centre it at 0,0)
-
+contour,sqrt(abs(real_part(imaff))),nlevels=128,/fill,title='input sky model - FFT transformed',charsize=3
 ; writefits,folder+'/out2/radio_flux.fits',imag
 
 ; writefits,folder+'/out/radio_flux_uv.fits',abs(imaff)
 
-;..............read in the configuration of a given array of n_ant antennas
-;.....warning: not a real configuration file, the position of antennas is just approximate! 
 
-file_input=folder+'/input/VLA.reg'
-n_ant=27 
-x=intarr(n_ant)
-y=intarr(n_ant)
-b=1
-c=1
-uv=fltarr(n0,n0)  ;....the UV plane is initialized here to fill with antennas projected positions
-                  ;....we need som juggling to convert the input array into the UV plane
-uv(*,*)=0.
-close,4
-openr,4,file_input
-for a=0,n_ant-1 do begin
-readf,4,b,c
-x(a)=b
-y(a)=c
-endfor
-close,4
+a=read_antenna(folder,name_ant,n_ant,x,y)
 
-print,"GENERATING VISIBILITIES"
+plot,x,y,title='antenna positions -JVLA',psym=4,xtitle='km',ytitle='km',charsize=3
 
-x=x-total(x)/float(27.)
-y=y-total(y)/float(27.)
-rmax=max(sqrt(x(*)^2.+y(*)^2.)) ;..maximum radius of the array, it must be normalized to the real km scale
+hour=10
+a=generate_uv(n0,hour,uv,x,y,uv_t,rmax)
 
-;....now the centre of the array is in [0.5*n0-1,0.5*n0-1]
-uvcx=n0*0.5-1. ;..centre of the UV domain
-uvcy=n0*0.5-1.
-x=uvcx+n0*0.5*(x)/float(rmax)-1
-y=uvcy+n0*0.5*(y)/float(rmax)-1
-print,min(x),max(x)
-print,min(y),max(y)
+contour,uv_t,title='UV coverage (visibilites)',charsize=3
+writefits,folder+'/output/uv_time_t.fits',uv_t
 
-;....in this way, the starting location of the array is expressed in the plane of 
-;....the image [0,n0]x[0,n0], with each pixel having about the right angular resolution
-;....of the VLA-D  25 " = 25 kpc
-;...this has to be changed for images produced at different resolution / redshift
+beam=generate_beam(uv_t,n0)
 
-lat=34 ;is the observer latitude in degrees
-del=75 ;is the source declination in degrees. since we deal with simulation, we can assume
-       ; the axes of the image are "confortably" aligned with the image plane, so the latitude and the earth
-       ; rotation are providing the only angles
-       ; JUST A SIMPLIFYING STARTING ASSUMPTION, WE NEED TO REFINE ON THIS!
-hour=8 ;total observation time in hours
-
-lat=2*!pi*lat/float(360.) ;..turns to radians
-del=2*!pi*del/float(360.)              ;..."
-
-
-y(*)=uvcy+sin(lat)*(y(*)-uvcy) ;...assume some projection at the latitude L 
-                               ;...not what happens in real observation, just a start
-
-for a=0,n_ant-1 do begin ;...we fill the UV plane with the initial configuration here
-b=uint(x(a))
-c=uint(y(a))
-uv(b,c)=1
-endfor
-
-xi=x    ;....the initial position of antennas in the UV plane are stored here as xi and yi
-yi=y
-x=0
-y=0
-
-;writefits,folder+'/out/uv_plane_t0.fits',uv
-
-;....TIME-DEPENDENT UV COVERAGE IS SIMULATED HERE
-
-uv_t=uv ;...the time dependent UV coverage is initialized here
- ;..we fill the UV coverage at the end of the observation time
- uv_t=uv_rotate(uv_t,hour)
- i2=where(uv_t gt 0) ;...1 only within the UV coverage of the observation, 0 elsewhere
- uv_t(i2)=1.
-
-;...we compute the maximum extent of the uv disk here.
-;...necessary below to avoid extrapolation outside of this disk in the "gridding"
-rmax=0
-r2=fltarr(2)
-for l=0,n0-1 do begin
-for i=0,n0-1 do begin
- if uv_t(i,l) gt 0 then begin
-  rr=sqrt((i-n0*0.5+1)^2.+(l-n0*0.5+1)^2.)
-  r2(0)=rr
-  r2(1)=rmax
-  rmax=max(r2)
- endif
-endfor
-endfor
-
-;writefits,folder+'/out/uv_time_t.fits',uv_t
-
-;....BEAM CREATION 
-beam=fft(shift(uv_t,-n0*0.5+1,-n0*0.5+1),-1)  ;...the beam in real space is created here 
-;beam=shift(beam,n0*0.5,n0*0.5)
-for l=0,n0-1 do begin
-for i=0,n0-1 do begin
-  rr=sqrt((i-n0*0.5+1)^2.+(l-n0*0.5+1)^2.)
-  beam(i,l)=beam(i,l)/float(1.+5e-2*rr) ;..trick to reduce edge effects in the outer beam pattern
-endfor
-endfor
-
-print,'BEAM IMAGE CREATED'
-writefits,folder+'/out/beam.fits',beam
+contour,alog10(beam),/fill,nlevels=128,title='beam',charsize=3
+writefits,folder+'/output/beam.fits',beam
                                           ;...we need the usual shift for the FFT in IDL
-
 imaff=imaff*uv_t ;...here the image in the Fourier space is convolved by the beam
 ;...THIS IS THE MAP OF VISIBILITES (IMA-FFT CONVOLVED BY THE BEAM)
-writefits,folder+'/out/visib_map.fits',abs(real_part(imaff))
+writefits,folder+'/output/visib_map.fits',abs(real_part(imaff))
 
-set_plot,'x'
-window,5
+contour,sqrt(abs(imaff)),/fill,nlevels=128,title='visibilities (ima-FFT x beam)',charsize=3
 
  ; GRIDDING IN THE UV PLANE 
- ;imaff=gridding(imaff)
- ;....under development, not clear what interpolation technique the real radio observation use
+; imaff=gridding(imaff,rmax)
  
+ ;....under development, not clear what interpolation technique the real radio observation use
 
-;....plot visibilities as in radio data reduction
-set_plot,'ps'
-!p.multi=0
-device,filename=folder+'/out/visib_radio.ps',/color
-o=indgen(2)
-loadct,13
-plot,o,o,/nodata,xrange=[1,70],yrange=[1,max(imaff)],xtitle='baselines', ytitle='flux [!4l!6J]'
-for k2=0,n0-1 do begin
-for k1=0,n0-1 do begin
-rk=(1+sqrt((k2-(n0*0.5-1))^2.+(k1-(n0*0.5-1))^2.))
-mo=(float(imaff(k1,k2)))^2.+(imaginary(imaff(k1,k2)))^2.
-if mo gt 10 then plots,rk,sqrt(mo),psym=1,noclip=0,col=60,thick=2
-;if uv_t(k1,k2) ge 1 then uv_t(k1,k2)=1
-endfor
-endfor
-device,/close
-;............
+ a=show_visib(folder,imaff,n0)
 
-imaff=shift(imaff,-n0*0.5,-n0*0.5)    ;...the image in the UV plane are again shifted
+ sigma_rms=80 ;...noise per beam [muJy/beam] 
+ noise=sigma_rms*randomn(12312313,n0,n0)
+
+
+; a=create_dirty(folder,imaff,nois0)
+ ;.....DIRTY IMAGE
+print,'creating dirty image '
+;imaff=shift(imaff,-n0*0.5,-n0*0.5)    ;...the image in the UV plane are again shifted
 imagk=fft(imaff,-1)                   ;...and FFT transformed in real space image
 
-;.....DIRTY IMAGE
 
-print,"DIRTY IMAGE CREATED"
-;...we add the noise per beam here 
- nois0=80  ;....baseline noise in muJ/beam (1-sigma)
- noise=nois0*randomu(3219891,n0,n0,/uniform) ;....we compute an instrumental (thermal) noise to be added to each pixel
  imac=sqrt((real_part(imagk))^2.+(imaginary(imagk))^2.)+noise
+ 
+ contour,sqrt(abs(imac)),nlevels=128,/fill,title='dirty image',charsize=3
+ 
+stop
  
 ; writefits,folder+'/out/dirty.fits',imac
  
@@ -382,7 +285,7 @@ endfor
 end
 
 
-function gridding,imaff
+function gridding,imaff,rmax
 
 ;...this is the gridding procedure to fill in the UV plane
 ;...it is not working properly, so it is skipped for the moment
@@ -416,5 +319,180 @@ for i=0,n0-1 do begin
  if sqrt((i-n0*0.5+1)^2.+(l-n0*0.5+1)^2.) gt rmax then imaff(i,l)=complex(0,0)
 endfor
 endfor
+contour,sqrt(abs(imaff)),/fill,nlevels=128,title='visibilities (ima-FFT x beam), gridded',charsize=3
+
 return,imaff
+end
+
+
+function read_image,n0,folder,namefile
+imag=fltarr(n0,n0)  ;...input image
+file_input=folder+'/input/'+namefile
+openr,4,file_input  ;...the input image is read
+readu,4,imag
+close,4
+return,imag
+end
+
+
+
+function read_antenna,folder,name_ant,n_ant,x,y
+
+
+  ;..............read in the configuration of a given array of n_ant antennas
+  ;.....warning: not a real configuration file, the position of antennas is just approximate!
+
+  file_input=folder+'/input/'+name_ant
+ 
+  b=1
+  c=1
+ 
+  close,4
+  openr,4,file_input
+  readf,4,n_ant
+  
+  x=intarr(n_ant)
+  y=intarr(n_ant)
+  for a=0,n_ant-1 do begin
+    readf,4,b,c
+    x(a)=b
+    y(a)=c
+  endfor
+  close,4
+
+  ;....positions are referred to the centre of the array 
+  x=x-total(x)/float(n_ant)
+  y=y-total(y)/float(n_ant)
+
+
+
+end
+
+
+function generate_uv,n0,hour,uv,x,y,uv_t,rmax
+
+uv=fltarr(n0,n0)  ;....the UV plane is initialized here to fill with antennas projected positions
+;....we need som juggling to convert the input array into the UV plane
+uv(*,*)=0.
+
+rmax=max(sqrt(x(*)^2.+y(*)^2.)) ;..maximum radius of the array, it must be normalized to the real km scale
+
+;....now the centre of the array is in [0.5*n0-1,0.5*n0-1]
+uvcx=n0*0.5-1. ;..centre of the UV domain
+uvcy=n0*0.5-1.
+x=uvcx+n0*0.5*(x)/float(rmax)-1
+y=uvcy+n0*0.5*(y)/float(rmax)-1
+ns=size(x)
+n_ant=ns(1)
+
+;....in this way, the starting location of the array is expressed in the plane of
+;....the image [0,n0]x[0,n0], with each pixel having about the right angular resolution
+;....of the VLA-D  25 " = 25 kpc
+;...this has to be changed for images produced at different resolution / redshift
+
+lat=34 ;is the observer latitude in degrees
+del=75 ;is the source declination in degrees. since we deal with simulation, we can assume
+; the axes of the image are "confortably" aligned with the image plane, so the latitude and the earth
+; rotation are providing the only angles
+; JUST A SIMPLIFYING STARTING ASSUMPTION, WE NEED TO REFINE ON THIS!
+
+lat=2*!pi*lat/float(360.) ;..turns to radians
+del=2*!pi*del/float(360.)              ;..."
+
+
+y(*)=uvcy+sin(lat)*(y(*)-uvcy) ;...assume some projection at the latitude L
+;...not what happens in real observation, just a start
+
+for a=0,n_ant-1 do begin ;...we fill the UV plane with the initial configuration here
+  b=uint(x(a))
+  c=uint(y(a))
+  uv(b,c)=1
+endfor
+
+xi=x    ;....the initial position of antennas in the UV plane are stored here as xi and yi
+yi=y
+x=0
+y=0
+
+;writefits,folder+'/out/uv_plane_t0.fits',uv
+
+;....TIME-DEPENDENT UV COVERAGE IS SIMULATED HERE
+
+uv_t=uv ;...the time dependent UV coverage is initialized here
+;..we fill the UV coverage at the end of the observation time
+uv_t=uv_rotate(uv_t,hour)
+i2=where(uv_t gt 0) ;...1 only within the UV coverage of the observation, 0 elsewhere
+uv_t(i2)=1.
+
+;...we compute the maximum extent of the uv disk here.
+;...necessary below to avoid extrapolation outside of this disk in the "gridding"
+rmax=0
+r2=fltarr(2)
+for l=0,n0-1 do begin
+  for i=0,n0-1 do begin
+    if uv_t(i,l) gt 0 then begin
+      rr=sqrt((i-n0*0.5+1)^2.+(l-n0*0.5+1)^2.)
+      r2(0)=rr
+      r2(1)=rmax
+      rmax=max(r2)
+    endif
+  endfor
+endfor
+
+end
+
+
+function generate_beam,uv_t,n0
+  ;....BEAM CREATION
+  beam=fft(shift(uv_t,-n0*0.5+1,-n0*0.5+1),-1)  ;...the beam in real space is created here
+;  beam=fft(uv_t,-1)  ;...the beam in real space is created here
+
+  beam=shift(beam,n0*0.5,n0*0.5)
+  for l=0,n0-1 do begin
+    for i=0,n0-1 do begin
+      rr=sqrt((i-n0*0.5+1)^2.+(l-n0*0.5+1)^2.)
+      beam(i,l)=beam(i,l)/float(1.+5e-2*rr) ;..trick to reduce edge effects in the outer beam pattern
+    endfor
+  endfor
+  return,beam
+  end
+
+function show_visib,folder,imaff,n0
+
+  ;....plot visibilities as in radio data reduction
+;  set_plot,'ps'
+;  !p.multi=0
+;  device,filename=folder+'output/visib_radio.ps',/color
+  o=indgen(2)
+  loadct,13
+  plot,o,o,/nodata,xrange=[1,70],yrange=[1,max(imaff)],xtitle='baselines', ytitle='flux [!4l!6J]',charsize=3,title='visibilities'
+  for k2=0,n0-1 do begin
+    for k1=0,n0-1 do begin
+      rk=(1+sqrt((k2-(n0*0.5-1))^2.+(k1-(n0*0.5-1))^2.))
+      mo=(float(imaff(k1,k2)))^2.+(imaginary(imaff(k1,k2)))^2.
+      if mo gt 10 then plots,rk,sqrt(mo),psym=3,noclip=0,thick=2
+      ;if uv_t(k1,k2) ge 1 then uv_t(k1,k2)=1
+    endfor
+  endfor
+ ; device,/close
+  
+  end
+pro generate_radio_gal
+n0=200
+imag=fltarr(n0,n0)
+ngal=10
+
+xc=n0*randomu(12313,ngal)
+yc=n0*randomu(1255313,ngal)
+ig=randomu(1141,ngal)
+for i=0,ngal-1 do begin
+imag(xc(i),yc(i))+=ig(i)
+endfor
+
+imag=smooth(imag,3)
+file='/Users/francovazza/Downloads/SIRIO/radio_gal.dat'
+openw,5,file
+writeu,5,imag
+close,5
+
 end
