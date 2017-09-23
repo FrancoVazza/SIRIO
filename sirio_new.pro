@@ -46,14 +46,14 @@ endif
 ;...it is true for Vazza's simulation if the source is located at dL=450 Mpc and the res is 32 kpc
 ;...we must assume a luminosity distance in  [Mpc]
 ;...no noise added
-dMpc=200 ;....luminosity distance in Mpc
+dMpc=100 ;....luminosity distance in Mpc
 cradio=23-alog10(4*3.14)-2*alog10(dMpc*3.085e24)+6 ;...this converts erg/(s Hz) in muJ/pixel
 imag=imag*10^cradio ;...now on the image is in muJ/pixel
 
 set_plot,'x' ;...show the image 
-!p.multi=[0,3,3]
+!p.multi=[0,2,4]
 !p.font=1
-window,1,xsize=900,ysize=900
+window,1,xsize=600,ysize=1200
 contour,alog10(imag),nlevels=128,/fill,title='input sky model',charsize=3
 ;tvscl,imag,title='sky model'
 print,'writing the sky model as .fits file in /input'
@@ -97,134 +97,31 @@ contour,sqrt(abs(imaff)),/fill,nlevels=128,title='visibilities (ima-FFT x beam)'
 
  sigma_rms=80 ;...noise per beam [muJy/beam] 
  noise=sigma_rms*randomn(12312313,n0,n0)
-
-
-; a=create_dirty(folder,imaff,nois0)
- ;.....DIRTY IMAGE
-print,'creating dirty image '
-;imaff=shift(imaff,-n0*0.5,-n0*0.5)    ;...the image in the UV plane are again shifted
-imagk=fft(imaff,-1)                   ;...and FFT transformed in real space image
-
-
- imac=sqrt((real_part(imagk))^2.+(imaginary(imagk))^2.)+noise
  
- contour,sqrt(abs(imac)),nlevels=128,/fill,title='dirty image',charsize=3
+ imac=create_dirty(folder,imaff,noise)
+ contour,smooth(sqrt(abs(imac)),3),nlevels=128,/fill,title='dirty image',charsize=3
+ writefits,folder+'/output/dirty_image.fits',imac
+
  
-stop
- 
-; writefits,folder+'/out/dirty.fits',imac
- 
- ;....to mimic real data reduction, we need to paste our image into a 4x4 larger domain,
- ;....since we need to subtract the beam even at the edges
- ima=fltarr(2*n0,2*n0)
- ima(*,*)=0
- ima(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1)=imac ;...2 times larger image
- imadum=(beam)                            ;...we create a temporary image to paste beam and original
-                                             ;...image into the 4x4 larger volume
- beaml=fltarr(2*n0,2*n0)                 
- beaml(*,*)=0
- beaml(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1)=imadum  ;...2 times larger beam image
- imadum=0
-
-;......CLEANING ALGORITHM
-print,"NOW CLEANING DIRTY IMAGE"
- rima=ima  ;...maps of residuals (initialized here)
- 
- max_beam=max(beaml)
- pi_beam=where(beaml eq max_beam)
- pi_beam2=array_indices(beaml,pi_beam)  ;...we ensure that locate centre of the beam image is the centre of the domain
- beaml=abs(1.*beaml/float(max_beam)) ;...beam is 1 at his maximum
-
-
-set_plot,'x'
-window,3,xsize=4*n0,ysize=2*n0
-
- ima_clean=fltarr(2*n0,2*n0) ;...map of components
- ima_clean(*,*)=0.
-
-it_max=3e4
-
-x1=0.5*n0
-x2=1.5*n0-1
-g=0.01 ;...loop gain
-
-for it=0L,it_max do  begin
-
-mi=max((rima(x1:x2,x1:x2)))   ;...maximum in the maps of resiudal
-pix=where(rima eq mi)         ;...locate maximum
-
-pix2=array_indices(rima,pix)  
-
-ibeam=g*mi*shift(beaml,pix2(0)-pi_beam2(0),pix2(1)-pi_beam2(1))  ;...the beam pattern is multiplied by the maximum and by g
-ima_clean(pix2(0),pix2(1))=ima_clean(pix2(0),pix2(1))+g*mi ;...the map of components is updated by this contribution
-rima=rima-ibeam ;...the map of residuals is reduced by this amount
-
-if it/float(30) eq uint(it/float(30)) then begin
-;...here we compute run-time distribution of total real flux, flux in the dirty
-;...image and flux in the component map
-
- tvscl,[rima(x1:x2,x1:x2),ima_clean(x1:x2,x1:x2)]
-print,it
-; hist=histogram(alog10(ima_clean(x1:x2,x1:x2)),min=0,max=7,binsize=0.1)
-;histc=histogram(alog10(imac),min=0,max=7,binsize=0.1)
-; histf=histogram(alog10(imag),min=0,max=7,binsize=0.1)
-; h=10^(0.1*indgen(70))
-;  plot,h,hist/float(h),/ylog,yrange=[1e-5,1e4],xrange=[1,1e6],/xlog,psym=10,thick=3,xtitle='!4l!6J/beam',ytitle='N!dpixel!n'
-; oplot,h,histc/float(h),linestyle=1,psym=10,col=60,thick=5
-; oplot,h,histf/float(h),linestyle=2,psym=10,col=250,thick=5
- endif
-
-;if it eq 10 then writefits,folder+'/out2/ima_clean_10.fits',ima_clean
-;if it eq 100 then writefits,folder+'/out2/ima_clean_100.fits',ima_clean
-;;if it eq 200 then writefits,folder+'/out2/ima_clean_200.fits',ima_clean
-;if it eq 390 then writefits,folder+'/out2/ima_clean_390.fits',ima_clean
-
- if rima(pix2(0),pix2(1)) lt 1.1*nois0 then break ;..we exit from the loop when the maximum in the residual map>1sigma noise                                             
- endfor
-
-imag:
-print,'end of cleaning after',it,'   iterations'
- 
-;.....WE MUST CONVOLVE HERE THE MAP OF COMPONENTS WITH A GAUSSIAN OF FWHM=TO THAT OF THE PRIMARY BEAM
-
-  beam_fwhm=2 ;...needs to be refined
-  ima_components=ima_clean
-  ima_clean=smooth(ima_clean,beam_fwhm)+rima
- 
- 
- hist=histogram(alog10(ima_clean(x1:x2,x1:x2)),min=0,max=7,binsize=0.1)
- histc=histogram(alog10(imac),min=0,max=7,binsize=0.1)
- histf=histogram(alog10(imag),min=0,max=7,binsize=0.1)
-;...here below we produce the final distribution of original (real) flux in the map, of the
-;...dirty one (dirty image+noise) and of the final restored flux
- 
- set_plot,'ps'
- loadct,13
- device,filename=folder+'/out/pixel_distrib_11.ps',/color,xsize=12,ysize=12
- !p.multi=0
- h=10^(0.1*indgen(70))
- 
- plot,h,hist/float(h),/ylog,yrange=[1e-5,1e4],xrange=[1,1e6],/xlog,psym=10,thick=3,xtitle='!4l!6J/beam',ytitle='N!dpixel!n'
- oplot,h,histc/float(h),linestyle=1,psym=10,col=60,thick=5
- oplot,h,histf/float(h),linestyle=2,psym=10,col=250,thick=5
-
-  xyouts,1.5,30,'real flux',col=250,charthick=2
-  xyouts,1.5,10,'restored flux',col=0,charthick=2
-  xyouts,1.5,3,'dirty flux',col=60,charthick=2
+  rima=imac
+  a=cleaning_iterations(ima_clean,rima,ima_components,beam,n0,sigma_rms)
   
- loadct,0
- plots,70,1e-5
- plots,70,1e4,/continue,linestyle=2,thick=9,col=150
-
- 
-
-device,/close 
 
 ;....here we produce fits files for the restored image, the residual map and the components
  
- writefits,folder+'/out/ima_final_11.fits',ima_clean(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1)
- writefits,folder+'/out/ima_residuals_11.fits',(rima(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1))
- writefits,folder+'/out/ima_components_11.fits',(ima_components(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1))
+
+set_plot,'x' ;...show the image
+!p.multi=[0,3,0]
+!p.font=1
+window,12,xsize=1200,ysize=400
+contour,((ima_clean(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1))),nlevels=256,/fill,title='clean image',charsize=3
+contour,((rima(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1))),nlevels=256,/fill,title='residuals',charsize=3
+contour,((ima_components(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1))),nlevels=256,/fill,title='components',charsize=3
+  
+ 
+ writefits,folder+'/output/ima_clean_final.fits',ima_clean(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1)
+ writefits,folder+'/output/ima_residuals.fits',(rima(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1))
+ writefits,folder+'/output/ima_components.fits',(ima_components(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1))
  
 
 end
@@ -477,6 +374,93 @@ function show_visib,folder,imaff,n0
  ; device,/close
   
   end
+  
+  function create_dirty,folder,imaff,noise
+  print,'creating dirty image '
+ 
+  imagk=fft(imaff,-1)                   ;...and FFT transformed in real space image
+
+  imac=sqrt((real_part(imagk))^2.+(imaginary(imagk))^2.)+noise
+
+  return,imac
+  end
+
+
+function cleaning_iterations,ima_clean,rima,ima_components,beam,n0,sigma_rms
+
+  ;....to mimic real data reduction, we need to paste our image into a 4x4 larger domain,
+  ;....since we need to subtract the beam even at the edges
+  
+  ima=fltarr(2*n0,2*n0)
+  ima(*,*)=0
+  ima(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1)=rima ;...2 times larger image
+  imadum=(beam)                            ;...we create a temporary image to paste beam and original
+  ;...image into the 4x4 larger volume
+  beaml=fltarr(2*n0,2*n0)
+  beaml(*,*)=0
+  beaml(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1)=imadum  ;...2 times larger beam image
+  imadum=0
+
+  ;......CLEANING ALGORITHM
+  print,"NOW CLEANING DIRTY IMAGE"
+  rima=ima  ;...maps of residuals (initialized here)
+
+  max_beam=max(beaml)
+  pi_beam=where(beaml eq max_beam)
+  pi_beam2=array_indices(beaml,pi_beam)  ;...we ensure that locate centre of the beam image is the centre of the domain
+  beaml=abs(1.*beaml/float(max_beam)) ;...beam is 1 at his maximum
+
+
+  set_plot,'x'
+  window,6,xsize=2*n0,ysize=n0
+
+  ima_clean=fltarr(2*n0,2*n0) ;...map of components
+  ima_clean(*,*)=0.
+
+  it_max=1e4
+
+  x1=0.5*n0
+  x2=1.5*n0-1
+  g=0.03 ;...loop gain
+
+  for it=0L,it_max do  begin
+
+    mi=max((rima(x1:x2,x1:x2)))   ;...maximum in the maps of resiudal
+    pix=where(rima eq mi)         ;...locate maximum
+
+    pix2=array_indices(rima,pix)
+
+    ibeam=g*mi*shift(beaml,pix2(0)-pi_beam2(0),pix2(1)-pi_beam2(1))  ;...the beam pattern is multiplied by the maximum and by g
+    ima_clean(pix2(0),pix2(1))=ima_clean(pix2(0),pix2(1))+g*mi ;...the map of components is updated by this contribution
+    rima=rima-ibeam ;...the map of residuals is reduced by this amount
+
+    if it/float(100) eq uint(it/float(100)) then begin
+      ;...here we compute run-time distribution of total real flux, flux in the dirty
+      ;...image and flux in the component map
+
+      tvscl,[rima(x1:x2,x1:x2),ima_clean(x1:x2,x1:x2)]
+
+      print,it
+    endif
+
+
+    if rima(pix2(0),pix2(1)) lt 1.1*sigma_rms then break ;..we exit from the loop when the maximum in the residual map>3 sigma noise
+  endfor
+
+  imag:
+  print,'end of cleaning after',it,'   iterations'
+
+  ;.....WE MUST CONVOLVE HERE THE MAP OF COMPONENTS WITH A GAUSSIAN OF FWHM=TO THAT OF THE PRIMARY BEAM
+
+  beam_fwhm=2 ;...needs to be refined
+  ima_components=ima_clean
+  ima_clean=smooth(ima_clean,beam_fwhm)+rima
+
+end
+  
+  
+  
+  
 pro generate_radio_gal
 n0=200
 imag=fltarr(n0,n0)
