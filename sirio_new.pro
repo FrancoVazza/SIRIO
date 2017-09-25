@@ -1,7 +1,6 @@
 
-pro sirio
-
-;....by Franco Vazza, Annalisa Bonafede (2012)
+;....SIRIO
+;....by Franco Vazza, Annalisa Bonafede (orig. 2012, new version 2017)
 ;....takes as input a simulated radio image [erg/(s Hz)]
 ;....computes the observable flux muJ/pixel at distance dL
 ;....takes as input a dataset for a given interferometer configuration
@@ -9,120 +8,120 @@ pro sirio
 ;.......treated in an over-simplifed way!
 ;....computes UV coverage and dirty beam
 ;....clean the dirty image via iterations
+;....IMPORTANT: this basic version assumes that pixel=beamsise in the input sky model!
+;
+;
+;...calling sequence 
+;...sirio,file_sky_model='input.fits',number_point_sources=20,live_plot='y', sigma_rms=1e-6     etc...
 
-folder='/Users/francovazza/Downloads/SIRIO/'
-namef='relic1.dat'     ;..binary file containing sky model
-nameg='radio_gal.dat'  ;...binary file containing pointlike sources - to change this file use the "generate_radio_gal" routine
-name_ant='VLA.reg'     ;...file with antenna positions
-      
-;...constants needed for the simulated input image
+pro sirio,file_sky_model=file_sky_model,folder=folder,file_antenna=file_antenna,number_point_sources=number_point_sources,live_plot=live_plot,max_iter=max_iter,sigma_rms=sigma_rms,hour=hour
 
- kb=1.38e-16;float(11.6e6) ; boltzmann constant in cgs
- kmtoMpc=3.085e-24  ;....in cgs this is -24 conversion from Mpc to km
- cell=32 ;....physical size of a pixel                                ;....in this case 32 kpc
- pixel_scale=32*0.095 ;...pixel scale for this simulation at z=0.05 in LCDM 
-;...read an input image of size nxn and dimension [erg/s/Hz]
-;...here in binary format
-n0=200  ;..size of the input image
+print,'>>STARTING SIRIO<<'
 
-;...in the input files, relic1-2-3 are the three projection of a simulated double relic with b0=0.1 muG everywhere
-;........................relic11-22-33 are the same fields, for a larger fixed B=1muG.
+  if not IS_DEF(file_sky_model) then file_sky_model='relic1.fits'  ;...input sky model 
+   if not IS_DEF(folder) then folder='/Users/francovazza/Downloads/SIRIO/'   ;...main folder containing SIRIO
+   if not IS_DEF(file_antenna) then file_antenna='VLA.reg'   ;...file with atenna positions
+   if not IS_DEF(number_point_sources) then number_point_sources=2   ;...additional pointlike sources to be generated
+   if not IS_DEF(live_plot) then live_plot='y'  ;...plots on 'x' device while computing 
+   if not IS_DEF(max_iter) then max_iter=1e4   ;..max iterations in cleaning
+   if not IS_DEF(sigma_rms) then sigma_rms=8e-5 ;...Jy/beam
+   if not IS_DEF(hour) then hour=10  ;...hours of integration
+   
+
 print,'Reading sky model' 
-imag=read_image(n0,folder,namef)
+   imag=read_image_fits(folder,file_sky_model)
+   
+   ;imag=read_image_bin(n0,folder,namef)   alternative reader for binary 2D datasets
+   ns=size(imag)
+   n0=ns(1)
+   print,'the size of the input image is ',ns(1:2) 
 
-print,'Do you want to add pointlike sources? (y/n)'
-answ='y'
-;read,answ
+print,'the number of additional point sources is ',number_point_sources
+  if number_point_sources gt 0 then begin
+  imas=generate_radio_gal(number_point_sources,n0)
+  norm_gal=1. ;..normalisation factor for radio galaxy emission [erg/s/Hz], can be changed for different purposes
+  imag+=norm_gal*imas  
+  writefits,folder+'/output/sky_model_with_sources.fits',imag
+  endif
 
-if answ eq 'y' then begin
-print,'Adding pointlike sources (generate with "generate_radio_gal") '
-imas=read_image(n0,folder,nameg)
-norm_gal=3e28 ;..normalisation factor for radio galaxy emission [erg/s/Hz]
-imag+=imas+norm_gal*imas
-endif
 
-;...now we transform erg/s/Hz in muJ/pixel
-;...the pixel is assumed to be equal to the observational beam at this level
-;...it is true for Vazza's simulation if the source is located at dL=450 Mpc and the res is 32 kpc
-;...we must assume a luminosity distance in  [Mpc]
-;...no noise added
-dMpc=100 ;....luminosity distance in Mpc
-cradio=23-alog10(4*3.14)-2*alog10(dMpc*3.085e24)+6 ;...this converts erg/(s Hz) in muJ/pixel
-imag=imag*10^cradio ;...now on the image is in muJ/pixel
+ if live_plot eq 'y' then begin
+  print,'live plotting of all main steps in SIRIO'
+  print,'please notice for > 256x256 images the live plotting introduces a slow-down of everything'
+  set_plot,'x' ;...show the image 
+  !p.multi=[0,2,4]
+  !p.font=1
+  window,1,xsize=600,ysize=1200
+  contour,sqrt(imag),nlevels=128,/fill,title='input sky model',charsize=3
+  endif
 
-set_plot,'x' ;...show the image 
-!p.multi=[0,2,4]
-!p.font=1
-window,1,xsize=600,ysize=1200
-contour,alog10(imag),nlevels=128,/fill,title='input sky model',charsize=3
-;tvscl,imag,title='sky model'
-print,'writing the sky model as .fits file in /input'
+ print,'writing the sky model as .fits file in /output'
  writefits,folder+'/output/input_map.fits',abs(imag)
 
-print,'FFT transforming the dataset' 
+ print,'FFT transforming the dataset' 
  imaff=shift(fft(imag,1),n0*0.5-1,n0*0.5-1)  ;...simple FFT transform of the image, centre in 0.5*n-1,0.5*n-1 (the conversion in idl is to centre it at 0,0)
-contour,sqrt(abs(real_part(imaff))),nlevels=128,/fill,title='input sky model - FFT transformed',charsize=3
-; writefits,folder+'/out2/radio_flux.fits',imag
-
-; writefits,folder+'/out/radio_flux_uv.fits',abs(imaff)
-
-
-a=read_antenna(folder,name_ant,n_ant,x,y)
-
-plot,x,y,title='antenna positions -JVLA',psym=4,xtitle='km',ytitle='km',charsize=3
-
-hour=10
-a=generate_uv(n0,hour,uv,x,y,uv_t,rmax)
-
-contour,uv_t,title='UV coverage (visibilites)',charsize=3
-writefits,folder+'/output/uv_time_t.fits',uv_t
-
-beam=generate_beam(uv_t,n0)
-
-contour,alog10(beam),/fill,nlevels=128,title='beam',charsize=3
-writefits,folder+'/output/beam.fits',beam
-                                          ;...we need the usual shift for the FFT in IDL
-imaff=imaff*uv_t ;...here the image in the Fourier space is convolved by the beam
-;...THIS IS THE MAP OF VISIBILITES (IMA-FFT CONVOLVED BY THE BEAM)
-writefits,folder+'/output/visib_map.fits',abs(real_part(imaff))
-
-contour,sqrt(abs(imaff)),/fill,nlevels=128,title='visibilities (ima-FFT x beam)',charsize=3
-
- ; GRIDDING IN THE UV PLANE 
-; imaff=gridding(imaff,rmax)
+ if live_plot eq 'y' then contour,sqrt(abs(real_part(imaff))),/fill,nlevels=128,title='input sky model - FFT transformed',charsize=3
  
- ;....under development, not clear what interpolation technique the real radio observation use
+ a=read_antenna(folder,file_antenna,n_ant,x,y)
+
+ if live_plot eq 'y' then plot,x,y,title='antenna positions -JVLA',psym=4,xtitle='km',ytitle='km',charsize=3
+
+  a=generate_uv(n0,hour,uv,x,y,uv_t,rmax)
+
+  if live_plot eq 'y' then contour,uv_t,title='UV coverage (visibilites)',charsize=3
+  writefits,folder+'/output/uv_time_t.fits',uv_t
+
+ beam=generate_beam(uv_t,n0)   ;...generate beam of the radio observation 
+
+ if live_plot eq 'y' then contour,sqrt(beam),nlevels=10,title='beam',charsize=3
+ writefits,folder+'/output/beam.fits',beam
+                                          ;...we need the usual shift for the FFT in IDL
+ imaff=imaff*uv_t ;...here the image in the Fourier space is convolved by the beam
+ ;...THIS IS THE MAP OF VISIBILITES (IMA-FFT CONVOLVED BY THE BEAM)
+ writefits,folder+'/output/visib_map.fits',abs(real_part(imaff))
+
+if live_plot eq 'y' then contour,sqrt(abs(imaff)),/fill,nlevels=128,title='visibilities (ima-FFT x beam)',charsize=3
+
+  ; GRIDDING IN THE UV PLANE 
+  ; imaff=gridding(imaff,rmax)
+   ;....under development, not clear what interpolation technique the real radio observation use
 
  a=show_visib(folder,imaff,n0)
 
- sigma_rms=80 ;...noise per beam [muJy/beam] 
- noise=sigma_rms*randomn(12312313,n0,n0)
+ noise=add_noise(sigma_rms,n0)
+  writefits,folder+'/output/noise.fits',noise
+
  
- imac=create_dirty(folder,imaff,noise)
- contour,smooth(sqrt(abs(imac)),3),nlevels=128,/fill,title='dirty image',charsize=3
- writefits,folder+'/output/dirty_image.fits',imac
+  imac=create_dirty(folder,imaff,noise)
+  if live_plot eq 'y' then contour,sqrt(abs(imac)),nlevels=128,/fill,title='dirty image',charsize=3
+  writefits,folder+'/output/dirty_image.fits',imac
 
  
   rima=imac
-  a=cleaning_iterations(ima_clean,rima,ima_components,beam,n0,sigma_rms)
+  a=cleaning_iterations(ima_clean,rima,ima_components,beam,n0,sigma_rms,max_iter,live_plot)
   
 
 ;....here we produce fits files for the restored image, the residual map and the components
  
+if live_plot eq 'y' then begin
 
-set_plot,'x' ;...show the image
+set_plot,'x' 
+print,'showing the final result'
 !p.multi=[0,3,0]
 !p.font=1
 window,12,xsize=1200,ysize=400
-contour,((ima_clean(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1))),nlevels=256,/fill,title='clean image',charsize=3
-contour,((rima(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1))),nlevels=256,/fill,title='residuals',charsize=3
-contour,((ima_components(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1))),nlevels=256,/fill,title='components',charsize=3
-  
+tvscl,[ima_clean(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1),rima(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1)]
+;contour,((ima_clean(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1))),nlevels=128,/fill,title='clean image',charsize=3
+;contour,((rima(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1))),nlevels=128,/fill,title='residuals',charsize=3
+;contour,((ima_components(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1))),nlevels=128,/fill,title='components',charsize=3
+ endif
  
  writefits,folder+'/output/ima_clean_final.fits',ima_clean(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1)
  writefits,folder+'/output/ima_residuals.fits',(rima(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1))
  writefits,folder+'/output/ima_components.fits',(ima_components(0.5*n0:1.5*n0-1,0.5*n0:1.5*n0-1))
  
+print,'run done'
+print,'>>all data written in /output<<'
 
 end
 
@@ -222,13 +221,19 @@ return,imaff
 end
 
 
-function read_image,n0,folder,namefile
+function read_image_bin,n0,folder,namefile
 imag=fltarr(n0,n0)  ;...input image
 file_input=folder+'/input/'+namefile
 openr,4,file_input  ;...the input image is read
 readu,4,imag
 close,4
 return,imag
+end
+
+
+function read_image_fits,folder,namefile
+ imag=readfits(folder+'/input/'+namefile,/noscale,h)
+ return,imag
 end
 
 
@@ -362,19 +367,28 @@ function show_visib,folder,imaff,n0
 ;  device,filename=folder+'output/visib_radio.ps',/color
   o=indgen(2)
   loadct,13
-  plot,o,o,/nodata,xrange=[1,70],yrange=[1,max(imaff)],xtitle='baselines', ytitle='flux [!4l!6J]',charsize=3,title='visibilities'
+  plot,o,o,/nodata,xrange=[1,70],yrange=[1,1e6*max(imaff)],xtitle='baselines', ytitle='flux [!4l!6Jy/baseline]',charsize=3,title='visibilities',/ylog
   for k2=0,n0-1 do begin
     for k1=0,n0-1 do begin
       rk=(1+sqrt((k2-(n0*0.5-1))^2.+(k1-(n0*0.5-1))^2.))
       mo=(float(imaff(k1,k2)))^2.+(imaginary(imaff(k1,k2)))^2.
-      if mo gt 10 then plots,rk,sqrt(mo),psym=3,noclip=0,thick=2
-      ;if uv_t(k1,k2) ge 1 then uv_t(k1,k2)=1
+     
+      plots,rk,1e6*sqrt(real_part(mo)),psym=3,noclip=0
+    
     endfor
   endfor
  ; device,/close
   
   end
   
+  
+  function add_noise,sigma_rms,n0
+  
+    noise=sigma_rms*randomn(12312313,n0,n0)  ;...generate 2D map of noise (assumed normal distribution)
+    
+    return,noise
+    end
+    
   function create_dirty,folder,imaff,noise
   print,'creating dirty image '
  
@@ -386,8 +400,9 @@ function show_visib,folder,imaff,n0
   end
 
 
-function cleaning_iterations,ima_clean,rima,ima_components,beam,n0,sigma_rms
+function cleaning_iterations,ima_clean,rima,ima_components,beam,n0,sigma_rms,max_iter,live_plot
 
+  
   ;....to mimic real data reduction, we need to paste our image into a 4x4 larger domain,
   ;....since we need to subtract the beam even at the edges
   
@@ -402,7 +417,7 @@ function cleaning_iterations,ima_clean,rima,ima_components,beam,n0,sigma_rms
   imadum=0
 
   ;......CLEANING ALGORITHM
-  print,"NOW CLEANING DIRTY IMAGE"
+  print,"NOW CLEANING DIRTY IMAGE WITH", max_iter,' iterations'
   rima=ima  ;...maps of residuals (initialized here)
 
   max_beam=max(beaml)
@@ -411,20 +426,21 @@ function cleaning_iterations,ima_clean,rima,ima_components,beam,n0,sigma_rms
   beaml=abs(1.*beaml/float(max_beam)) ;...beam is 1 at his maximum
 
 
+if live_plot eq 'y' then begin
   set_plot,'x'
   window,6,xsize=2*n0,ysize=n0
-
+endif
   ima_clean=fltarr(2*n0,2*n0) ;...map of components
   ima_clean(*,*)=0.
 
-  it_max=1e4
+  it_max=max_iter
 
   x1=0.5*n0
   x2=1.5*n0-1
   g=0.03 ;...loop gain
 
   for it=0L,it_max do  begin
-
+  if it/float(1000) eq uint(it/float(1000)) then print,'done ',it,' iterations'
     mi=max((rima(x1:x2,x1:x2)))   ;...maximum in the maps of resiudal
     pix=where(rima eq mi)         ;...locate maximum
 
@@ -438,9 +454,9 @@ function cleaning_iterations,ima_clean,rima,ima_components,beam,n0,sigma_rms
       ;...here we compute run-time distribution of total real flux, flux in the dirty
       ;...image and flux in the component map
 
-      tvscl,[rima(x1:x2,x1:x2),ima_clean(x1:x2,x1:x2)]
+  if live_plot eq 'y' then    tvscl,[rima(x1:x2,x1:x2),ima_clean(x1:x2,x1:x2)]
 
-      print,it
+     ; print,it
     endif
 
 
@@ -454,29 +470,31 @@ function cleaning_iterations,ima_clean,rima,ima_components,beam,n0,sigma_rms
 
   beam_fwhm=2 ;...needs to be refined
   ima_components=ima_clean
-  ima_clean=smooth(ima_clean,beam_fwhm)+rima
+  ima_clean=gauss_smooth(ima_clean,beam_fwhm)+rima
 
 end
   
   
   
   
-pro generate_radio_gal
-n0=200
-imag=fltarr(n0,n0)
-ngal=10
+function generate_radio_gal,number_point_sources,n0
 
-xc=n0*randomu(12313,ngal)
+imas=fltarr(n0,n0)
+ngal=number_point_sources
+
+xc=n0*randomu(12313,ngal)  ;..random x and y positions
 yc=n0*randomu(1255313,ngal)
-ig=randomu(1141,ngal)
+ig=randomn(1141,ngal)   ;...random distribution of fluxes
+
+normg=0.1/float(max(ig))   ;..we normalize the sources so that their max is 0.1 Jy/beam @1.4 GHz
+ig*=normg   
+
 for i=0,ngal-1 do begin
-imag(xc(i),yc(i))+=ig(i)
+imas(xc(i),yc(i))+=ig(i)
 endfor
 
-imag=smooth(imag,3)
-file='/Users/francovazza/Downloads/SIRIO/radio_gal.dat'
-openw,5,file
-writeu,5,imag
-close,5
+imas=gauss_smooth(imas,1) ;...the sources are smoothed to make them roundish
+
+return,imas
 
 end
