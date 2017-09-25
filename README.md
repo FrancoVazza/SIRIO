@@ -26,6 +26,10 @@ IDL
 
 >.r sirio
 
+>.r sirio 
+
+(both twice)
+
 >sirio    
 
 or 
