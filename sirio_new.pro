@@ -470,7 +470,7 @@ endif
 
   beam_fwhm=2 ;...needs to be refined
   ima_components=ima_clean
-  ima_clean=gauss_smooth(ima_clean,beam_fwhm)+rima
+  ima_clean=smooth(ima_clean,beam_fwhm)+rima
 
 end
   
@@ -493,7 +493,7 @@ for i=0,ngal-1 do begin
 imas(xc(i),yc(i))+=ig(i)
 endfor
 
-imas=gauss_smooth(imas,1) ;...the sources are smoothed to make them roundish
+imas=smooth(imas,1) ;...the sources are smoothed to make them roundish
 
 return,imas
 
