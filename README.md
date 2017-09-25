@@ -52,6 +52,7 @@ Suggested tests:
 - lowering/increasing the noise per beam;
 - removing pointsources;
 - imposing less iterations;
+- test different input files available in /input: 3 are 200x200 radio relic maps, one is a larger 1200x1200 dataset.
 
 
 ...Enjoy! 
