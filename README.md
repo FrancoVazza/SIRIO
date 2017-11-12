@@ -1,3 +1,6 @@
+****I have discovered a few important inconsistencies which makes the results qualitatively correct yet quantitatively wrong (i.e. wrong final flux and similar). A revision is underway and will be soon committed.***
+
+
 # SIRIO
 
 Sirio (SImulator of Radio Interferometic Observations) is an  IDL package to practice with the logic of radio imaging
